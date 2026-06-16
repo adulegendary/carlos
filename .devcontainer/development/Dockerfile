@@ -108,8 +108,9 @@ RUN npm install -g playwright@1.56.0 && \
 # Install Playwright browsers (Chromium, Firefox) with system dependencies
 # Note: Chrome excluded - no ARM64 Linux builds (breaks Apple Silicon). Chromium is equivalent.
 # Version 1.56.0+ correctly uses t64 package names (e.g., libasound2t64) for Ubuntu 24.04
-RUN npx playwright install --with-deps chromium firefox && \
-    echo "✅ Playwright browsers installed (Chromium, Firefox)"
+# TEMP: skipped locally to avoid multi-hour browser download on a slow link.
+# Re-enable when the in-container ui-tests skill is needed.
+RUN echo "⏭️  Skipping Playwright browser install (local opt-out)"
 
 # Install pipx and Aider AI coding assistant
 RUN /usr/local/bin/apt-install pipx && \
