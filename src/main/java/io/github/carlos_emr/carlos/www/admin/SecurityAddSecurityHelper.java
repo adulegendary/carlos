@@ -37,12 +37,14 @@ import io.github.carlos_emr.carlos.commn.dao.SecurityDao;
 import io.github.carlos_emr.carlos.commn.model.Security;
 import io.github.carlos_emr.carlos.managers.SecurityManager;
 import io.github.carlos_emr.carlos.utility.SpringUtils;
+import io.github.carlos_emr.carlos.daos.security.SecuserroleDao;  // the DAO (writes the table)
+import io.github.carlos_emr.carlos.model.security.Secuserrole;    // the model (one role row)
+
 
 import io.github.carlos_emr.MyDateFormat;
 import io.github.carlos_emr.carlos.log.LogAction;
 import io.github.carlos_emr.carlos.log.LogConst;
 import io.github.carlos_emr.carlos.utility.LoggedInInfo;
-
 
 /**
  * Helper class for securityaddsecurity.jsp page.
@@ -51,6 +53,10 @@ public class SecurityAddSecurityHelper {
 
     private SecurityDao securityDao = SpringUtils.getBean(SecurityDao.class);
 	private final SecurityManager securityManager = SpringUtils.getBean(SecurityManager.class);
+    private final SecuserroleDao secUserRoleDao = SpringUtils.getBean(SecuserroleDao.class);
+    // TODO(#2689): confirm from the maintainers (@yingbull).
+    // Must be a role that grants "_appointment r". Placeholder until decided:
+    private static final String DEFAULT_ROLE = "doctor";
 
     /**
      * Adds a sec record (i.e. user login information) for the providers.
@@ -103,6 +109,17 @@ public class SecurityAddSecurityHelper {
 		}
 
         securityDao.persist(s);
+        // Assign a default role so the new login has baseline privileges.
+        // Without this the account authenticates but has no role, and the
+        // schedule landing page fails its "_appointment r" check (issue #2689).
+        Secuserrole role = new Secuserrole();
+        role.setProviderNo(s.getProviderNo());
+        role.setRoleName(DEFAULT_ROLE);
+        role.setOrgcd("R0000001");
+        role.setActiveyn(1);
+        role.setLastUpdateDate(new Date());
+        secUserRoleDao.save(role);
+
 
         LoggedInInfo loggedInInfo = LoggedInInfo.getLoggedInInfoFromSession(pageContext.getSession());
         LogAction.addLog(loggedInInfo != null ? loggedInInfo.getLoggedInProviderNo() : null, LogConst.ADD, LogConst.CON_SECURITY, request.getParameter("user_name"), request.getRemoteAddr());
