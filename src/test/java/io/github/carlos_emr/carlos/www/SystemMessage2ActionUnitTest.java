@@ -25,6 +25,7 @@ import io.github.carlos_emr.carlos.commn.dao.SystemMessageDao;
 import io.github.carlos_emr.carlos.commn.model.SystemMessage;
 import io.github.carlos_emr.carlos.managers.SecurityInfoManager;
 import io.github.carlos_emr.carlos.test.base.CarlosWebTestBase;
+import io.github.carlos_emr.carlos.utility.LoggedInInfo;
 
 import org.junit.jupiter.api.*;
 import org.mockito.*;
