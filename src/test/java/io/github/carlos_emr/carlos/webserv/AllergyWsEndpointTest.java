@@ -25,6 +25,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.mock;
 
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -86,7 +87,7 @@ class AllergyWsEndpointTest extends CarlosSoapTestBase {
     @Test
     void shouldRejectAllergyRead_beforeManagerLookup_whenPermissionDenied() {
         injectDependency(ws, "securityInfoManager",
-                org.mockito.Mockito.mock(io.github.carlos_emr.carlos.managers.SecurityInfoManager.class));
+                mock(io.github.carlos_emr.carlos.managers.SecurityInfoManager.class));
         AllergyWs proxy = createClient(AllergyWs.class);
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> proxy.getAllergy(42))
                 .hasMessageContaining("missing required sec object (_allergy)");

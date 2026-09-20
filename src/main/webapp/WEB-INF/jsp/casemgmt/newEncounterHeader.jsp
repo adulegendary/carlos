@@ -163,42 +163,42 @@ function fallbackCopy(text) {
             <carlos:encode value='<%=demographic.getAgeAsOf(new Date(), request.getLocale())%>' context="html"/>
          </div>
       <c:if test="<%=(demographic.getHin() != null && !demographic.getHin().isEmpty())%>">
-         <div id="patient-hin" class="copyable" role="button" tabindex="0"
-              onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); this.click(); }" onclick="copyToClip('<carlos:encode value='<%= demographic.getHin() %>' context="javaScriptAttribute"/>',this)">
-            <div class="label">
+         <button type="button" id="patient-hin" class="copyable"
+              onclick="copyToClip('<carlos:encode value='<%= demographic.getHin() %>' context="javaScriptAttribute"/>',this)">
+            <span class="label">
               <fmt:message key="demographic.patient.context.hin"/>
-            </div>
+            </span>
             (<carlos:encode value='<%= demographic.getHcType() %>' context="html"/>)
             <carlos:encode value='<%= demographic.getHin() %>' context="html"/>&nbsp;
             <carlos:encode value='<%= demographic.getVer() %>' context="html"/>
-         </div>
+         </button>
       </c:if>
       <c:if test="<%=(demographic.getPhone() != null && !demographic.getPhone().isEmpty())%>">
-         <div id="patient-phone" class="copyable" role="button" tabindex="0"
-              onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); this.click(); }" title="" onclick="copyToClip('<carlos:encode value='<%= demographic.getPhone() %>' context="javaScriptAttribute"/>',this)">
-            <div class="label">
+         <button type="button" id="patient-phone" class="copyable"
+              title="" onclick="copyToClip('<carlos:encode value='<%= demographic.getPhone() %>' context="javaScriptAttribute"/>',this)">
+            <span class="label">
               <fmt:message key="demographic.demographicaddrecordhtm.formPhone"/>
-            </div>
+            </span>
             <carlos:encode value='<%= demographic.getPhone() %>' context="html"/>
-         </div>
+         </button>
       </c:if>
       <c:if test="<%=(demographic.getCellPhone() != null && !demographic.getCellPhone().isEmpty())%>">
-         <div id="patient-cell-phone" class="copyable" role="button" tabindex="0"
-              onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); this.click(); }" title="" onclick="copyToClip('<carlos:encode value='<%= demographic.getCellPhone() %>' context="javaScriptAttribute"/>',this)">
-            <div class="label">
+         <button type="button" id="patient-cell-phone" class="copyable"
+              title="" onclick="copyToClip('<carlos:encode value='<%= demographic.getCellPhone() %>' context="javaScriptAttribute"/>',this)">
+            <span class="label">
               <fmt:message key="demographic.demographicaddrecordhtm.formPhoneCell"/>
-            </div>
+            </span>
             <carlos:encode value='<%= demographic.getCellPhone() %>' context="html"/>
-         </div>
+         </button>
       </c:if>
       <c:if test="<%=(demographic.getEmail() != null && !demographic.getEmail().isEmpty())%>">
-         <div id="patient-email" class="copyable" role="button" tabindex="0"
-              onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); this.click(); }" onclick="copyToClip('<carlos:encode value='<%= demographic.getEmail() %>' context="javaScriptAttribute"/>',this)">
-            <div class="label">
+         <button type="button" id="patient-email" class="copyable"
+              onclick="copyToClip('<carlos:encode value='<%= demographic.getEmail() %>' context="javaScriptAttribute"/>',this)">
+            <span class="label">
               <fmt:message key="demographic.demographicaddrecordhtm.formEMail"/>
-            </div>
+            </span>
             <carlos:encode value='<%= demographic.getEmail() %>' context="html"/>
-         </div>
+         </button>
       </c:if>
          <div id="patient-next-appointment">
             <div class="label"><a href="${ctx}/demographic/DemographicApptHistory?demographic_no=<%=demoNo%>&amp;orderby=appointment_date&amp;dboperation=appt_history&amp;limit1=0&amp;limit2=25" title="<fmt:message key="eform.groups.page.viewAll"/>" target="_blank">

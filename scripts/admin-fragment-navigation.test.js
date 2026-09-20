@@ -60,26 +60,14 @@ test('calculator header navigation keeps patient attributes out of both popup an
 });
 
 
-test('encounter header copy controls support Enter and Space without consuming other keys', () => {
+test('encounter copy controls use native non-submitting buttons for keyboard activation', () => {
   const source = fs.readFileSync(path.join(__dirname,
     '../src/main/webapp/WEB-INF/jsp/casemgmt/newEncounterHeader.jsp'), 'utf8');
   for (const id of ['patient-hin', 'patient-phone', 'patient-cell-phone', 'patient-email']) {
-    const tag = source.match(new RegExp('<div[^>]*id="' + id + '"[^>]*>'));
-    assert.ok(tag, `Missing copy control: ${id}`);
-    assert.match(tag[0], /role="button"/);
-    assert.match(tag[0], /tabindex="0"/);
-    const handler = tag[0].match(/onkeydown="([^"]+)"/);
-    assert.ok(handler, `Missing keyboard handler: ${id}`);
-    for (const key of ['Enter', ' ', 'Tab', 'Escape', 'a']) {
-      let clicks = 0;
-      let prevented = 0;
-      vm.runInNewContext('(function () {' + handler[1] + '}).call(control)', {
-        control: {click: () => clicks++},
-        event: {key, preventDefault: () => prevented++},
-      });
-      const expected = key === 'Enter' || key === ' ' ? 1 : 0;
-      assert.equal(clicks, expected, `${id}: ${key} activation`);
-      assert.equal(prevented, expected, `${id}: ${key} default behavior`);
-    }
+    const tag = source.match(new RegExp('<button[^>]*id="' + id + '"[^>]*>'));
+    assert.ok(tag, `Missing native copy button: ${id}`);
+    assert.match(tag[0], /type="button"/, 'Copy must never submit the surrounding form');
+    assert.match(tag[0], /onclick="copyToClip\(/, 'Native keyboard activation must invoke the copy handler');
+    assert.doesNotMatch(tag[0], /onkey(?:down|up)=/, 'Use native Enter/Space behavior without duplicate activation');
   }
 });
