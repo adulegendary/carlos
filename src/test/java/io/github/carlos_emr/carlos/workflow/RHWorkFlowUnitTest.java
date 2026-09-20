@@ -39,11 +39,17 @@ class RHWorkFlowUnitTest extends CarlosUnitTestBase {
     @Test void shouldReturnRuleEvaluation_whenDecisionSupportSucceeds() throws Exception {
         WorkFlowDS engine = mock(WorkFlowDS.class);
         when(engine.getMessages(any())).thenAnswer(call -> {
-            WorkFlowInfo info = call.getArgument(0); info.setColour("yellow"); return info;
+            WorkFlowInfo info = call.getArgument(0);
+            info.setColour("yellow");
+            return info;
         });
-        Hashtable<String, Object> input = new Hashtable<>(); input.put("current_state", "2"); input.put("ID", "77");
+        Hashtable<String, Object> input = new Hashtable<>();
+        input.put("current_state", "2");
+        input.put("ID", "77");
         WorkFlowInfo result = new RHWorkFlow().executeRules(engine, input);
-        assertThat(result.getID()).isEqualTo("77"); assertThat(result.getCurrentState()).isEqualTo("2");
-        assertThat(result.getColour()).isEqualTo("yellow"); verify(engine).getMessages(any(WorkFlowInfo.class));
+        assertThat(result.getID()).isEqualTo("77");
+        assertThat(result.getCurrentState()).isEqualTo("2");
+        assertThat(result.getColour()).isEqualTo("yellow");
+        verify(engine).getMessages(any(WorkFlowInfo.class));
     }
 }
