@@ -44,6 +44,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -238,6 +239,20 @@ public class Startup implements ServletContextListener {
     }
 
     /**
+     * Opens a configuration file for reading. Exists as a seam because the distinction this class
+     * depends on - a file that is absent versus one that exists but cannot be opened - cannot be
+     * produced through filesystem permissions when the test suite runs as root, which it does both
+     * locally and in CI. Package-private so tests can substitute a failing opener.
+     */
+    @FunctionalInterface
+    interface ConfigFileOpener {
+        InputStream open(File file) throws IOException;
+    }
+
+    /** Replaced by tests; always {@link FileInputStream} in production. */
+    static ConfigFileOpener configFileOpener = FileInputStream::new;
+
+    /**
      * Merges one configuration file into {@code target}. Absent is normal - either channel may be
      * unused, and an empty result is what drives the {@code /WEB-INF/} fallback. Unreadable is fatal.
      */
@@ -246,9 +261,18 @@ public class Startup implements ServletContextListener {
             return;
         }
         File file = PathValidationUtils.resolveConfiguredFile(configuredPath, "carlos properties file");
-        try (FileInputStream input = new FileInputStream(file)) {
+        try (InputStream input = configFileOpener.open(file)) {
             target.load(input);
         } catch (FileNotFoundException e) {
+            // FileInputStream raises FileNotFoundException both for an absent file and for one that
+            // exists but cannot be opened (permissions, wrong Tomcat user). Only the former is normal.
+            // Treating the latter as "absent" would leave existingKey null and let a /WEB-INF/
+            // placeholder key overwrite the real generated one - a silent decryption break for every
+            // record stored since first startup. Ask the filesystem rather than infer from the type.
+            if (file.exists()) {
+                throw new IllegalStateException(
+                        "Configuration file exists but could not be read: " + configuredPath, e);
+            }
             logger.info("{} not found", configuredPath);
         } catch (IOException e) {
             throw new IllegalStateException("Failed to read configuration file " + configuredPath, e);

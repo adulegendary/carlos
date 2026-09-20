@@ -6,6 +6,8 @@ import io.github.carlos_emr.carlos.utility.EncryptionUtils;
 import io.github.carlos_emr.carlos.utility.WebappShutdownResources;
 import jakarta.servlet.ServletContext;
 import jakarta.servlet.ServletContextEvent;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -28,6 +30,7 @@ import org.mockito.MockedStatic;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.verify;
@@ -41,6 +44,12 @@ import static org.mockito.Mockito.when;
 @Isolated
 @Tag("unit")
 class StartupUnitTest extends CarlosUnitTestBase {
+
+    /**
+     * The placeholder key defined by {@code /WEB-INF/carlosmergekey.properties}. Kept in sync with that
+     * fixture; it is the value that must never overwrite a real generated key.
+     */
+    private static final String WEB_INF_PLACEHOLDER_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 
     @Test
     @Tag("delete")
@@ -744,6 +753,75 @@ class StartupUnitTest extends CarlosUnitTestBase {
             // The real user-home key survives (carlosmerge WEB-INF defines no key of its own).
             assertThat(props.getProperty(EncryptionUtils.SECRET_KEY_ENV_VAR)).isEqualTo(userHomeKey);
         } finally {
+            restoreUserHome(originalUserHome);
+            props.clear();
+            props.putAll(snapshot);
+            keySpecField.set(null, originalKeySpec);
+        }
+    }
+
+    @Test
+    @Tag("create")
+    @DisplayName("should abort startup when the user-home config exists but cannot be read")
+    void shouldAbortStartup_whenUserHomeConfigExistsButIsUnreadable(@TempDir Path tempDir) throws Exception {
+        // Regression for the issue #2969 review follow-up: FileInputStream reports a file that exists
+        // but cannot be opened (wrong permissions, wrong Tomcat user) with the same FileNotFoundException
+        // it uses for a genuinely absent file. loadIfPresent treats both as "absent", so the deployment
+        // key never reaches existingKey, the /WEB-INF/ placeholder key wins, and CARLOS boots unable to
+        // decrypt anything stored since the real key was generated. Startup must refuse to boot instead.
+        Field keySpecField = EncryptionUtils.class.getDeclaredField("SECRET_KEY_SPEC");
+        keySpecField.setAccessible(true);
+        Object originalKeySpec = keySpecField.get(null);
+
+        CarlosProperties props = CarlosProperties.getInstance();
+        String originalUserHome = System.getProperty("user.home");
+        Properties snapshot = new Properties();
+        snapshot.putAll(props);
+        Startup.ConfigFileOpener originalOpener = Startup.configFileOpener;
+
+        // Context "carlosmergekey" -> /WEB-INF/carlosmergekey.properties, which defines a placeholder
+        // key. That placeholder is exactly what must not win when the real key is unreachable.
+        ServletContextEvent event = newStartupEvent(tempDir, "carlosmergekey");
+
+        String userHomeKey = EncryptionUtils.generateSecretKey();
+        Path userHomeStub = tempDir.resolve("carlosmergekey.properties");
+        Properties stub = new Properties();
+        stub.setProperty(EncryptionUtils.SECRET_KEY_ENV_VAR, userHomeKey);
+        try (var out = Files.newOutputStream(userHomeStub)) {
+            stub.store(out, "issue #2969 regression stub - key only, made unreadable below");
+        }
+
+        try {
+            System.setProperty("user.home", tempDir.toString());
+            props.clear();
+            keySpecField.set(null, null);
+
+            // The file is present on disk; only opening it fails. Permissions cannot express this when
+            // the suite runs as root, so the seam stands in for the OS.
+            Startup.configFileOpener = file -> {
+                if (file.getPath().equals(userHomeStub.toString())) {
+                    throw new FileNotFoundException(file + " (Permission denied)");
+                }
+                return new FileInputStream(file);
+            };
+
+            Throwable thrown = catchThrowable(() -> new Startup().contextInitialized(event));
+
+            // Asserted before the abort so a regression reports the actual harm - the placeholder key
+            // being adopted - rather than only the missing exception.
+            assertThat(props.getProperty(EncryptionUtils.SECRET_KEY_ENV_VAR))
+                    .as("the /WEB-INF/ placeholder key must not be adopted when the real key is "
+                            + "unreachable; booting on with it silently breaks decryption of everything "
+                            + "stored since the real key was generated")
+                    .isNotEqualTo(WEB_INF_PLACEHOLDER_KEY);
+
+            assertThat(thrown)
+                    .as("an unreadable deployment config must abort startup, not fall through to the "
+                            + "/WEB-INF/ placeholder key")
+                    .isInstanceOf(RuntimeException.class);
+            assertThat(thrown).hasMessageContaining("carlosmergekey.properties");
+        } finally {
+            Startup.configFileOpener = originalOpener;
             restoreUserHome(originalUserHome);
             props.clear();
             props.putAll(snapshot);
