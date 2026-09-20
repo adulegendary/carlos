@@ -163,7 +163,8 @@ function fallbackCopy(text) {
             <carlos:encode value='<%=demographic.getAgeAsOf(new Date(), request.getLocale())%>' context="html"/>
          </div>
       <c:if test="<%=(demographic.getHin() != null && !demographic.getHin().isEmpty())%>">
-         <div id="patient-hin" class="copyable" onclick="copyToClip('<carlos:encode value='<%= demographic.getHin() %>' context="javaScriptAttribute"/>',this)">
+         <div id="patient-hin" class="copyable" role="button" tabindex="0"
+              onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); this.click(); }" onclick="copyToClip('<carlos:encode value='<%= demographic.getHin() %>' context="javaScriptAttribute"/>',this)">
             <div class="label">
               <fmt:message key="demographic.patient.context.hin"/>
             </div>
@@ -173,7 +174,8 @@ function fallbackCopy(text) {
          </div>
       </c:if>
       <c:if test="<%=(demographic.getPhone() != null && !demographic.getPhone().isEmpty())%>">
-         <div id="patient-phone" class="copyable" title="" onclick="copyToClip('<carlos:encode value='<%= demographic.getPhone() %>' context="javaScriptAttribute"/>',this)">
+         <div id="patient-phone" class="copyable" role="button" tabindex="0"
+              onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); this.click(); }" title="" onclick="copyToClip('<carlos:encode value='<%= demographic.getPhone() %>' context="javaScriptAttribute"/>',this)">
             <div class="label">
               <fmt:message key="demographic.demographicaddrecordhtm.formPhone"/>
             </div>
@@ -181,7 +183,8 @@ function fallbackCopy(text) {
          </div>
       </c:if>
       <c:if test="<%=(demographic.getCellPhone() != null && !demographic.getCellPhone().isEmpty())%>">
-         <div id="patient-cell-phone" class="copyable" title="" onclick="copyToClip('<carlos:encode value='<%= demographic.getCellPhone() %>' context="javaScriptAttribute"/>',this)">
+         <div id="patient-cell-phone" class="copyable" role="button" tabindex="0"
+              onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); this.click(); }" title="" onclick="copyToClip('<carlos:encode value='<%= demographic.getCellPhone() %>' context="javaScriptAttribute"/>',this)">
             <div class="label">
               <fmt:message key="demographic.demographicaddrecordhtm.formPhoneCell"/>
             </div>
@@ -189,7 +192,8 @@ function fallbackCopy(text) {
          </div>
       </c:if>
       <c:if test="<%=(demographic.getEmail() != null && !demographic.getEmail().isEmpty())%>">
-         <div id="patient-email" class="copyable" onclick="copyToClip('<carlos:encode value='<%= demographic.getEmail() %>' context="javaScriptAttribute"/>',this)">
+         <div id="patient-email" class="copyable" role="button" tabindex="0"
+              onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); this.click(); }" onclick="copyToClip('<carlos:encode value='<%= demographic.getEmail() %>' context="javaScriptAttribute"/>',this)">
             <div class="label">
               <fmt:message key="demographic.demographicaddrecordhtm.formEMail"/>
             </div>

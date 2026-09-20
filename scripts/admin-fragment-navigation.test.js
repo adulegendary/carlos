@@ -58,3 +58,28 @@ test('calculator header navigation keeps patient attributes out of both popup an
       'The menu must resolve demographics for the originating chart, not a later shared-session patient');
   }
 });
+
+
+test('encounter header copy controls support Enter and Space without consuming other keys', () => {
+  const source = fs.readFileSync(path.join(__dirname,
+    '../src/main/webapp/WEB-INF/jsp/casemgmt/newEncounterHeader.jsp'), 'utf8');
+  for (const id of ['patient-hin', 'patient-phone', 'patient-cell-phone', 'patient-email']) {
+    const tag = source.match(new RegExp('<div[^>]*id="' + id + '"[^>]*>'));
+    assert.ok(tag, `Missing copy control: ${id}`);
+    assert.match(tag[0], /role="button"/);
+    assert.match(tag[0], /tabindex="0"/);
+    const handler = tag[0].match(/onkeydown="([^"]+)"/);
+    assert.ok(handler, `Missing keyboard handler: ${id}`);
+    for (const key of ['Enter', ' ', 'Tab', 'Escape', 'a']) {
+      let clicks = 0;
+      let prevented = 0;
+      vm.runInNewContext('(function () {' + handler[1] + '}).call(control)', {
+        control: {click: () => clicks++},
+        event: {key, preventDefault: () => prevented++},
+      });
+      const expected = key === 'Enter' || key === ' ' ? 1 : 0;
+      assert.equal(clicks, expected, `${id}: ${key} activation`);
+      assert.equal(prevented, expected, `${id}: ${key} default behavior`);
+    }
+  }
+});

@@ -25,7 +25,6 @@ import io.github.carlos_emr.carlos.commn.dao.SystemMessageDao;
 import io.github.carlos_emr.carlos.commn.model.SystemMessage;
 import io.github.carlos_emr.carlos.managers.SecurityInfoManager;
 import io.github.carlos_emr.carlos.test.base.CarlosWebTestBase;
-import io.github.carlos_emr.carlos.utility.LoggedInInfo;
 
 import org.junit.jupiter.api.*;
 import org.mockito.*;
@@ -166,7 +165,7 @@ class SystemMessage2ActionUnitTest extends CarlosWebTestBase {
 
         @Test
         @DisplayName("should throw SecurityException when privilege is denied")
-        void shouldThrowSecurityException_whenPrivilegeDenied() throws Exception {
+        void shouldThrowSecurityException_whenPrivilegeDenied() {
             // Given - deny _admin write privilege
             denyPrivilege("_admin", "w");
 

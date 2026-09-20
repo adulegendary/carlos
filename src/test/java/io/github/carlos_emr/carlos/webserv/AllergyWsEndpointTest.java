@@ -68,6 +68,7 @@ class AllergyWsEndpointTest extends CarlosSoapTestBase {
     @Override
     protected Object getServiceBean() {
         ws = new AllergyWs();
+        injectDependency(ws, "securityInfoManager", authorizeEndpoint("r", "_allergy"));
         return ws;
     }
 
@@ -80,6 +81,16 @@ class AllergyWsEndpointTest extends CarlosSoapTestBase {
     void setUpMocks() {
         registerMock(AllergyManager.class, allergyManager);
         injectDependency(ws, "allergyManager", allergyManager);
+    }
+
+    @Test
+    void shouldRejectAllergyRead_beforeManagerLookup_whenPermissionDenied() {
+        injectDependency(ws, "securityInfoManager",
+                org.mockito.Mockito.mock(io.github.carlos_emr.carlos.managers.SecurityInfoManager.class));
+        AllergyWs proxy = createClient(AllergyWs.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> proxy.getAllergy(42))
+                .hasMessageContaining("missing required sec object (_allergy)");
+        org.mockito.Mockito.verifyNoInteractions(allergyManager);
     }
 
     /** Tests for the getAllergy SOAP operation. */
