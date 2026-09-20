@@ -13,7 +13,8 @@ import io.github.carlos_emr.carlos.workflow.WorkFlow;
 import io.github.carlos_emr.carlos.workflow.WorkFlowFactory;
 import io.github.carlos_emr.carlos.workflow.WorkFlowState;
 import java.util.ArrayList;
-import java.util.Hashtable;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Properties;
 import org.apache.struts2.ServletActionContext;
 import org.junit.jupiter.api.Test;
@@ -43,7 +44,7 @@ class FrmFormRHPrevention2ActionUnitTest extends CarlosUnitTestBase {
         MockHttpServletRequest request = request(); request.setParameter("workflowId", "17");
         request.setParameter("provider_no", "forged"); request.setParameter("state", "2");
         WorkFlow flow = mock(WorkFlow.class); FrmRecord record = mock(FrmRecord.class);
-        Hashtable<String,String> row = new Hashtable<>(); row.put("ID", "17");
+        Map<String, Object> row = new HashMap<>(); row.put("ID", "17");
         when(flow.getActiveWorkFlowList("770001")).thenReturn(new ArrayList<>(java.util.List.of(row)));
         when(record.saveFormRecord(any())).thenReturn(32);
 
@@ -87,7 +88,7 @@ class FrmFormRHPrevention2ActionUnitTest extends CarlosUnitTestBase {
         MockHttpServletRequest request = request(); request.setParameter("workflowId", "99");
         request.setParameter("state", "2");
         WorkFlow flow = mock(WorkFlow.class);
-        Hashtable<String,String> row = new Hashtable<>(); row.put("ID", "17");
+        Map<String, Object> row = new HashMap<>(); row.put("ID", "17");
         when(flow.getActiveWorkFlowList("770001")).thenReturn(new ArrayList<>(java.util.List.of(row)));
         try (MockedStatic<ServletActionContext> servlet = servlet(request);
              MockedConstruction<WorkFlowFactory> workflows = mockConstruction(WorkFlowFactory.class,
@@ -105,7 +106,7 @@ class FrmFormRHPrevention2ActionUnitTest extends CarlosUnitTestBase {
     @Test void shouldReportSaveFailure_withoutReturningSuccessOrZeroRecordRoute() throws Exception {
         MockHttpServletRequest request = request(); request.setParameter("workflowId", "17");
         WorkFlow flow = mock(WorkFlow.class); FrmRecord record = mock(FrmRecord.class);
-        Hashtable<String,String> row = new Hashtable<>(); row.put("ID", "17");
+        Map<String, Object> row = new HashMap<>(); row.put("ID", "17");
         when(flow.getActiveWorkFlowList("770001")).thenReturn(new ArrayList<>(java.util.List.of(row)));
         when(record.saveFormRecord(any())).thenThrow(new java.sql.SQLException("synthetic save failure"));
         try (MockedStatic<ServletActionContext> servlet = servlet(request);
@@ -135,7 +136,7 @@ class FrmFormRHPrevention2ActionUnitTest extends CarlosUnitTestBase {
     @Test void shouldRejectOtherPatientWorkflowInAddAction_beforeMeasurements() {
         MockHttpServletRequest request = request(); request.setParameter("workflowId", "99");
         request.setParameter("state", "2");
-        Hashtable<String,String> row = new Hashtable<>(); row.put("ID", "17");
+        Map<String, Object> row = new HashMap<>(); row.put("ID", "17");
         try (MockedStatic<ServletActionContext> servlet = servlet(request);
              MockedConstruction<WorkFlowState> workflows = mockConstruction(WorkFlowState.class,
                (mock, context) -> when(mock.getActiveWorkFlowList("RH", "770001"))
@@ -151,7 +152,7 @@ class FrmFormRHPrevention2ActionUnitTest extends CarlosUnitTestBase {
     @Test void shouldSaveOwnedAddAction_withPatientWorkflow() {
         MockHttpServletRequest request = request(); request.setParameter("workflowId", "17");
         request.setParameter("state", "2");
-        Hashtable<String,String> row = new Hashtable<>(); row.put("ID", "17");
+        Map<String, Object> row = new HashMap<>(); row.put("ID", "17");
         try (MockedStatic<ServletActionContext> servlet = servlet(request);
              MockedConstruction<WorkFlowState> workflows = mockConstruction(WorkFlowState.class,
                (mock, context) -> when(mock.getActiveWorkFlowList("RH", "770001"))
@@ -168,7 +169,7 @@ class FrmFormRHPrevention2ActionUnitTest extends CarlosUnitTestBase {
         request.setParameter("motherABO", "AB");
         request.setParameter("motherRHtype", "NEG");
         request.setParameter("provider_no", "forged");
-        Hashtable<String, String> row = new Hashtable<>();
+        Map<String, Object> row = new HashMap<>();
         row.put("ID", "17");
         try (MockedStatic<ServletActionContext> servlet = servlet(request);
              MockedConstruction<WorkFlowState> workflows = mockConstruction(WorkFlowState.class,
@@ -195,7 +196,7 @@ class FrmFormRHPrevention2ActionUnitTest extends CarlosUnitTestBase {
         request.setParameter("end_date", "2027-01-01");
         request.setParameter("motherABO", "AB");
         request.setParameter("motherRHtype", "NEG");
-        Hashtable<String, String> row = new Hashtable<>();
+        Map<String, Object> row = new HashMap<>();
         row.put("ID", "17");
         try (MockedStatic<ServletActionContext> servlet = servlet(request);
              MockedConstruction<WorkFlowState> workflows = mockConstruction(WorkFlowState.class, (mock, context) -> {
