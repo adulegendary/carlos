@@ -165,7 +165,7 @@ class SystemMessage2ActionUnitTest extends CarlosWebTestBase {
 
         @Test
         @DisplayName("should throw SecurityException when privilege is denied")
-        void shouldThrowSecurityException_whenPrivilegeDenied() throws Exception {
+        void shouldThrowSecurityException_whenPrivilegeDenied() {
             // Given - deny _admin write privilege
             denyPrivilege("_admin", "w");
 
