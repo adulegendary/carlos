@@ -1,17 +1,17 @@
 package io.github.carlos_emr.carlos.login;
 
 import io.github.carlos_emr.CarlosProperties;
+import io.github.carlos_emr.carlos.test.logging.LogCapture;
 import io.github.carlos_emr.carlos.test.unit.CarlosUnitTestBase;
 import io.github.carlos_emr.carlos.utility.EncryptionUtils;
 import io.github.carlos_emr.carlos.utility.WebappShutdownResources;
 import jakarta.servlet.ServletContext;
 import jakarta.servlet.ServletContextEvent;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.security.NoSuchAlgorithmException;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Base64;
@@ -764,11 +764,11 @@ class StartupUnitTest extends CarlosUnitTestBase {
     @Tag("create")
     @DisplayName("should abort startup when the user-home config exists but cannot be read")
     void shouldAbortStartup_whenUserHomeConfigExistsButIsUnreadable(@TempDir Path tempDir) throws Exception {
-        // Regression for the issue #2969 review follow-up: FileInputStream reports a file that exists
-        // but cannot be opened (wrong permissions, wrong Tomcat user) with the same FileNotFoundException
-        // it uses for a genuinely absent file. loadIfPresent treats both as "absent", so the deployment
-        // key never reaches existingKey, the /WEB-INF/ placeholder key wins, and CARLOS boots unable to
-        // decrypt anything stored since the real key was generated. Startup must refuse to boot instead.
+        // Regression for the issue #2969 review follow-up (cubic-dev-ai P2): a config file that exists
+        // but cannot be opened (wrong permissions, wrong Tomcat user, untraversable parent directory)
+        // must not be mistaken for an absent one. If it is, the deployment key never reaches
+        // existingKey, the /WEB-INF/ placeholder key wins, and CARLOS boots unable to decrypt anything
+        // stored since the real key was generated. Startup must refuse to boot instead.
         Field keySpecField = EncryptionUtils.class.getDeclaredField("SECRET_KEY_SPEC");
         keySpecField.setAccessible(true);
         Object originalKeySpec = keySpecField.get(null);
@@ -796,13 +796,15 @@ class StartupUnitTest extends CarlosUnitTestBase {
             props.clear();
             keySpecField.set(null, null);
 
-            // The file is present on disk; only opening it fails. Permissions cannot express this when
-            // the suite runs as root, so the seam stands in for the OS.
+            // The file is present on disk; only opening it fails, which is exactly what
+            // AccessDeniedException reports. Permissions cannot express this when the suite runs as
+            // root, so the seam stands in for the OS. Matched on the file name rather than the full
+            // path because production canonicalizes the path before opening it.
             Startup.configFileOpener = file -> {
-                if (file.getPath().equals(userHomeStub.toString())) {
-                    throw new FileNotFoundException(file + " (Permission denied)");
+                if (file.getFileName().toString().equals("carlosmergekey.properties")) {
+                    throw new AccessDeniedException(file.toString(), null, "Permission denied");
                 }
-                return new FileInputStream(file);
+                return Files.newInputStream(file);
             };
 
             Throwable thrown = catchThrowable(() -> new Startup().contextInitialized(event));
@@ -818,10 +820,65 @@ class StartupUnitTest extends CarlosUnitTestBase {
             assertThat(thrown)
                     .as("an unreadable deployment config must abort startup, not fall through to the "
                             + "/WEB-INF/ placeholder key")
-                    .isInstanceOf(RuntimeException.class);
-            assertThat(thrown).hasMessageContaining("carlosmergekey.properties");
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessageContaining("carlosmergekey.properties")
+                    // Pin the abort to the unreadable-config path specifically. The competing abort -
+                    // "Configuration file <name> not found in user home or WEB-INF" - carries the same
+                    // file name, so without these two the test would also pass on the wrong failure.
+                    .hasMessageContaining("could not be read")
+                    .hasRootCauseInstanceOf(AccessDeniedException.class);
         } finally {
             Startup.configFileOpener = originalOpener;
+            restoreUserHome(originalUserHome);
+            props.clear();
+            props.putAll(snapshot);
+            keySpecField.set(null, originalKeySpec);
+        }
+    }
+
+    @Test
+    @Tag("read")
+    @DisplayName("should report an absent user-home config once, not once per read pass")
+    void shouldReportAbsentUserHomeConfigOnce_whenFallingBackToWebInf(@TempDir Path tempDir) throws Exception {
+        // Regression for the issue #2969 review follow-up (cubic-dev-ai P3): the user-home file used to
+        // be opened twice per startup - once by readDeploymentProperties to decide the /WEB-INF/
+        // fallback, and again by a second p.readFromFile pass. A duplicate read leaves no trace in the
+        // resulting Properties, so the observable symptom is the duplicated "not found" line. Asserting
+        // on that pins single-read behaviour without reaching into the I/O layer.
+        Field keySpecField = EncryptionUtils.class.getDeclaredField("SECRET_KEY_SPEC");
+        keySpecField.setAccessible(true);
+        Object originalKeySpec = keySpecField.get(null);
+
+        CarlosProperties props = CarlosProperties.getInstance();
+        String originalUserHome = System.getProperty("user.home");
+        Properties snapshot = new Properties();
+        snapshot.putAll(props);
+
+        // Context "carlosmerge" -> /WEB-INF/carlosmerge.properties, which supplies DB config and no
+        // key, so startup completes through the fallback instead of aborting.
+        ServletContextEvent event = newStartupEvent(tempDir, "carlosmerge");
+        String absentConfig = tempDir.resolve("carlosmerge.properties").toString();
+
+        try {
+            System.setProperty("user.home", tempDir.toString()); // deliberately holds no config file
+            props.clear();
+            keySpecField.set(null, null);
+
+            List<String> messages;
+            try (LogCapture capture = LogCapture.forLogger(Startup.class)) {
+                new Startup().contextInitialized(event);
+                messages = capture.messages();
+            }
+
+            assertThat(messages)
+                    .as("an absent user-home config must be reported once per startup; two identical "
+                            + "lines mean the file is still being opened twice")
+                    .filteredOn(message -> message.equals(absentConfig + " not found"))
+                    .hasSize(1);
+
+            // Sanity check: the fallback still ran, so the single read is not masking a skipped load.
+            assertThat(props.getProperty("db_username")).isEqualTo("carlos_test_user");
+        } finally {
             restoreUserHome(originalUserHome);
             props.clear();
             props.putAll(snapshot);

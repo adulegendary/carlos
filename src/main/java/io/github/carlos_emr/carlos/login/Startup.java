@@ -41,10 +41,11 @@ import jakarta.servlet.ServletContextEvent;
 import jakarta.servlet.ServletContextListener;
 import jakarta.servlet.ServletContext;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -97,14 +98,16 @@ public class Startup implements ServletContextListener {
             // Decide the /WEB-INF/ fallback from deployment-supplied config only: the singleton is
             // pre-loaded with packaged /carlos.properties defaults, including db_username, so asking it
             // always answers "configured" and the merge would never run.
-            Properties deploymentProperties = readDeploymentProperties(propFileName);
+            DeploymentConfig deployment = readDeploymentProperties(propFileName);
+            Properties deploymentProperties = deployment.merged();
 
-            try {
-                // This has been used to look in the users home directory that started tomcat
-                p.readFromFile(propFileName);
+            // This has always looked in the home directory of the user that started tomcat. That file
+            // was already opened and parsed above, so apply the parsed result rather than reading it a
+            // second time: the former p.readFromFile(propFileName) pass re-opened the same path and,
+            // whenever it was absent, logged "not found" a second time for it.
+            p.putAll(deployment.userHome());
+            if (deployment.userHomeFound()) {
                 logger.info("loading properties from {}", propFileName);
-            } catch (java.io.FileNotFoundException ex) {
-                logger.info("{} not found", propFileName);
             }
 
             if (!hasDatabaseConfiguration(deploymentProperties)) {
@@ -224,18 +227,39 @@ public class Startup implements ServletContextListener {
     }
 
     /**
+     * Deployment-supplied configuration, kept split so the user-home slice can be applied to the
+     * singleton without opening that file a second time.
+     *
+     * @param merged        the override file merged with the user-home file, user-home winning on
+     *                      conflict; this is what answers "did the deployment supply real config?"
+     * @param userHome      the user-home file's properties alone - exactly what the singleton used to
+     *                      load on its own separate pass; empty when that file is absent
+     * @param userHomeFound whether the user-home file was present and loaded, which an empty
+     *                      {@code userHome} cannot distinguish from a present-but-empty file
+     */
+    record DeploymentConfig(Properties merged, Properties userHome, boolean userHomeFound) {
+    }
+
+    /**
      * Loads deployment-supplied configuration, excluding the packaged classpath defaults that make the
      * singleton useless for an "is this configured?" check. Both channels count: the
      * {@code carlos_override_properties} file and the user-home file, loaded last so it wins on conflict.
      *
      * @param userHomePropFileName absolute path of the user-home properties file for this context
-     * @return deployment-supplied properties; empty when neither file exists
+     * @return deployment-supplied properties; {@code merged} is empty when neither file exists
      */
-    static Properties readDeploymentProperties(String userHomePropFileName) {
-        Properties deploymentProperties = new Properties();
-        loadIfPresent(deploymentProperties, System.getProperty("carlos_override_properties"));
-        loadIfPresent(deploymentProperties, userHomePropFileName);
-        return deploymentProperties;
+    static DeploymentConfig readDeploymentProperties(String userHomePropFileName) {
+        Properties merged = new Properties();
+        loadIfPresent(merged, System.getProperty("carlos_override_properties"));
+
+        // Read into its own Properties as well as into the merged view: the caller applies this slice
+        // to the singleton, which must receive the user-home file only - never the override, which
+        // CarlosProperties' constructor has already applied.
+        Properties userHome = new Properties();
+        boolean userHomeFound = loadIfPresent(userHome, userHomePropFileName);
+        merged.putAll(userHome);
+
+        return new DeploymentConfig(merged, userHome, userHomeFound);
     }
 
     /**
@@ -243,39 +267,52 @@ public class Startup implements ServletContextListener {
      * depends on - a file that is absent versus one that exists but cannot be opened - cannot be
      * produced through filesystem permissions when the test suite runs as root, which it does both
      * locally and in CI. Package-private so tests can substitute a failing opener.
+     *
+     * <p>Implementations must follow the {@link java.nio.file.Files#newInputStream} contract that
+     * {@link #loadIfPresent} depends on: {@link NoSuchFileException} means absent, and every other
+     * {@link IOException} - {@link java.nio.file.AccessDeniedException} above all - means present but
+     * unusable.
      */
     @FunctionalInterface
     interface ConfigFileOpener {
-        InputStream open(File file) throws IOException;
+        InputStream open(Path file) throws IOException;
     }
 
-    /** Replaced by tests; always {@link FileInputStream} in production. */
-    static ConfigFileOpener configFileOpener = FileInputStream::new;
+    /** Replaced by tests; always {@link Files#newInputStream} in production. */
+    static ConfigFileOpener configFileOpener = Files::newInputStream;
 
     /**
      * Merges one configuration file into {@code target}. Absent is normal - either channel may be
      * unused, and an empty result is what drives the {@code /WEB-INF/} fallback. Unreadable is fatal.
+     *
+     * @return {@code true} when the file was present and loaded, {@code false} when it is simply
+     *         absent or no path is configured
      */
-    private static void loadIfPresent(Properties target, String configuredPath) {
+    private static boolean loadIfPresent(Properties target, String configuredPath) {
         if (configuredPath == null || configuredPath.isBlank()) {
-            return;
+            return false;
         }
         File file = PathValidationUtils.resolveConfiguredFile(configuredPath, "carlos properties file");
-        try (InputStream input = configFileOpener.open(file)) {
+        try (InputStream input = configFileOpener.open(file.toPath())) {
             target.load(input);
-        } catch (FileNotFoundException e) {
-            // FileInputStream raises FileNotFoundException both for an absent file and for one that
-            // exists but cannot be opened (permissions, wrong Tomcat user). Only the former is normal.
-            // Treating the latter as "absent" would leave existingKey null and let a /WEB-INF/
-            // placeholder key overwrite the real generated one - a silent decryption break for every
-            // record stored since first startup. Ask the filesystem rather than infer from the type.
-            if (file.exists()) {
-                throw new IllegalStateException(
-                        "Configuration file exists but could not be read: " + configuredPath, e);
-            }
+            return true;
+        } catch (NoSuchFileException e) {
+            // The only benign outcome: nothing is deployed at this path.
             logger.info("{} not found", configuredPath);
+            return false;
         } catch (IOException e) {
-            throw new IllegalStateException("Failed to read configuration file " + configuredPath, e);
+            // Everything else means the file is there but we cannot use it - wrong permissions, wrong
+            // Tomcat user, an untraversable parent directory, a directory in place of a file. Treating
+            // any of those as "absent" would leave existingKey null and let a /WEB-INF/ placeholder key
+            // overwrite the real generated one, silently breaking decryption of every record stored
+            // since first startup. So refuse to boot instead.
+            //
+            // This is why the read goes through java.nio rather than FileInputStream: FileInputStream
+            // reports absent and permission-denied with the same FileNotFoundException, and the
+            // File.exists() probe that used to tell them apart itself returns false when the parent
+            // directory cannot be traversed - the exact misconfiguration most in need of detection.
+            throw new IllegalStateException(
+                    "Configuration file exists but could not be read: " + configuredPath, e);
         }
     }
 
@@ -287,7 +324,7 @@ public class Startup implements ServletContextListener {
         String propertyDir = p.getProperty(propName);
         if (propertyDir == null) {
             propertyDir = baseDir + "/" + context + endDir;
-            logger.debug("Setting property " + propName + " with value " + propertyDir);
+            logger.debug("Setting property {} with value {}", propName, propertyDir);
             p.setProperty(propName, propertyDir);
             // Create directory if it does not exist
             File propertyDirectory = PathValidationUtils.resolveConfiguredDirectory(propertyDir, propName);
