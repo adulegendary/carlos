@@ -45,12 +45,6 @@ import static org.mockito.Mockito.when;
 @Tag("unit")
 class StartupUnitTest extends CarlosUnitTestBase {
 
-    /**
-     * The placeholder key defined by {@code /WEB-INF/carlosmergekey.properties}. Kept in sync with that
-     * fixture; it is the value that must never overwrite a real generated key.
-     */
-    private static final String WEB_INF_PLACEHOLDER_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-
     @Test
     @Tag("delete")
     void shouldUseThreadContextClassLoader_whenDestroyedWithNullEvent() throws Exception {
@@ -390,8 +384,13 @@ class StartupUnitTest extends CarlosUnitTestBase {
         String originalUserHome = System.getProperty("user.home");
 
         ServletContextEvent event = newStartupEvent(tempDir);
+        Properties snapshot = new Properties();
+        snapshot.putAll(props);
 
-        try (MockedStatic<EncryptionUtils> encryption = mockStatic(EncryptionUtils.class)) {
+        // An empty database: the #3939 encrypted-data check finds nothing, so generation is attempted.
+        try (EncryptedDataTestDatabase database = new EncryptedDataTestDatabase();
+             MockedStatic<EncryptionUtils> encryption = mockStatic(EncryptionUtils.class)) {
+            database.applyTo(props);
             System.setProperty("user.home", tempDir.toString());
             // Key-generation test, so give Startup real deployment config to find: packaged defaults no
             // longer count, so without a config file it aborts on the missing-config path
@@ -418,6 +417,8 @@ class StartupUnitTest extends CarlosUnitTestBase {
             encryption.verify(EncryptionUtils::generateSecretKey);
         } finally {
             restoreUserHome(originalUserHome);
+            props.clear();
+            props.putAll(snapshot);
             restoreProperty(props, originalProp);
             keySpecField.set(null, originalKeySpec);
         }
@@ -438,7 +439,9 @@ class StartupUnitTest extends CarlosUnitTestBase {
 
         ServletContextEvent event = newStartupEvent(tempDir);
 
-        try {
+        // An empty database is a fresh install for the #3939 encrypted-data check.
+        try (EncryptedDataTestDatabase database = new EncryptedDataTestDatabase()) {
+            database.applyTo(props);
             System.setProperty("user.home", tempDir.toString());
             // See the sibling key test: config must exist before Startup reaches key generation.
             writeDeploymentConfig(tempDir, "carlos");
@@ -525,10 +528,14 @@ class StartupUnitTest extends CarlosUnitTestBase {
         Properties keyPlusConfig = new Properties();
         keyPlusConfig.setProperty(EncryptionUtils.SECRET_KEY_ENV_VAR, "AAAA");
         keyPlusConfig.setProperty("db_username", "carlos_test_user");
+        keyPlusConfig.setProperty("db_name", "carlos_test_db");
+        keyPlusConfig.setProperty("db_uri", "localhost");
+        keyPlusConfig.setProperty("db_driver", "org.h2.Driver");
         assertThat(Startup.hasDatabaseConfiguration(keyPlusConfig)).isTrue();
 
         Properties configNoKey = new Properties();
-        configNoKey.setProperty("db_username", "carlos_test_user");
+        configNoKey.putAll(keyPlusConfig);
+        configNoKey.remove(EncryptionUtils.SECRET_KEY_ENV_VAR);
         assertThat(Startup.hasDatabaseConfiguration(configNoKey)).isTrue();
     }
 
@@ -587,7 +594,7 @@ class StartupUnitTest extends CarlosUnitTestBase {
             // The fix: the key-only stub must NOT suppress the WEB-INF config. Before the fix, the
             // p.isEmpty()==false guard skipped WEB-INF and the app booted with a key but no DB config.
             assertThat(props.getProperty("db_username")).isEqualTo("carlos_test_user");
-            assertThat(props.getProperty("db_name")).isEqualTo("carlos_test_db");
+            assertThat(props.getProperty("db_name")).isEqualTo("carlos_test_db;MODE=MySQL;NON_KEYWORDS=VALUE");
             // The previously generated key is reused as-is (not rotated).
             assertThat(props.getProperty(EncryptionUtils.SECRET_KEY_ENV_VAR)).isEqualTo(generatedKey);
         } finally {
@@ -642,7 +649,7 @@ class StartupUnitTest extends CarlosUnitTestBase {
 
             // DB config is loaded from WEB-INF...
             assertThat(props.getProperty("db_username")).isEqualTo("carlos_test_user");
-            assertThat(props.getProperty("db_name")).isEqualTo("carlos_test_db");
+            assertThat(props.getProperty("db_name")).isEqualTo("carlos_test_db;MODE=MySQL;NON_KEYWORDS=VALUE");
             // ...but the real user-home key survives the merge - the WEB-INF placeholder must not win.
             // The overwrite hazard comes from Properties.load() of a /WEB-INF/ file that also defines
             // encryption.util.secret.key; the retain-existingKey line above guards it.
@@ -701,7 +708,7 @@ class StartupUnitTest extends CarlosUnitTestBase {
 
             // The key-only user-home stub must NOT suppress the WEB-INF DB config merge.
             assertThat(props.getProperty("db_username")).isEqualTo("carlos_test_user");
-            assertThat(props.getProperty("db_name")).isEqualTo("carlos_test_db");
+            assertThat(props.getProperty("db_name")).isEqualTo("carlos_test_db;MODE=MySQL;NON_KEYWORDS=VALUE");
             // The real user-home key survives (carlosmerge WEB-INF defines no key of its own).
             assertThat(props.getProperty(EncryptionUtils.SECRET_KEY_ENV_VAR)).isEqualTo(userHomeKey);
         } finally {
@@ -760,7 +767,7 @@ class StartupUnitTest extends CarlosUnitTestBase {
 
             // Packaged defaults are not real configuration: the WEB-INF merge must still run and win.
             assertThat(props.getProperty("db_username")).isEqualTo("carlos_test_user");
-            assertThat(props.getProperty("db_name")).isEqualTo("carlos_test_db");
+            assertThat(props.getProperty("db_name")).isEqualTo("carlos_test_db;MODE=MySQL;NON_KEYWORDS=VALUE");
             // The real user-home key survives (carlosmerge WEB-INF defines no key of its own).
             assertThat(props.getProperty(EncryptionUtils.SECRET_KEY_ENV_VAR)).isEqualTo(userHomeKey);
         } finally {
@@ -826,7 +833,7 @@ class StartupUnitTest extends CarlosUnitTestBase {
                     .as("the /WEB-INF/ placeholder key must not be adopted when the real key is "
                             + "unreachable; booting on with it silently breaks decryption of everything "
                             + "stored since the real key was generated")
-                    .isNotEqualTo(WEB_INF_PLACEHOLDER_KEY);
+                    .isNotEqualTo(webInfPlaceholderKey());
 
             assertThat(thrown)
                     .as("an unreadable deployment config must abort startup, not fall through to the "
@@ -966,11 +973,98 @@ class StartupUnitTest extends CarlosUnitTestBase {
      */
     private static void writeDeploymentConfig(Path tempDir, String contextName) throws IOException {
         Properties config = new Properties();
-        config.setProperty("db_username", "carlos_test_user");
-        config.setProperty("db_name", "carlos_test_db");
+        CarlosProperties current = CarlosProperties.getInstance();
+        for (String key : java.util.List.of("db_username", "db_name", "db_uri", "db_driver", "db_password")) {
+            String value = current.getProperty(key);
+            if (value != null) config.setProperty(key, value);
+        }
+        config.putIfAbsent("db_username", "carlos_test_user");
+        config.putIfAbsent("db_name", "carlos_test_db");
+        config.putIfAbsent("db_uri", "jdbc:h2:mem:");
+        config.putIfAbsent("db_driver", "org.h2.Driver");
         try (var out = Files.newOutputStream(tempDir.resolve(contextName + ".properties"))) {
             config.store(out, "deployment-supplied config for StartupUnitTest");
         }
+    }
+
+    @Test
+    void shouldLoadMissingDatabaseSettings_whenDeploymentHasOnlyUsername(@TempDir Path tempDir) throws Exception {
+        CarlosProperties props = CarlosProperties.getInstance();
+        Properties snapshot = new Properties();
+        snapshot.putAll(props);
+        String originalUserHome = System.getProperty("user.home");
+        Field keySpecField = EncryptionUtils.class.getDeclaredField("SECRET_KEY_SPEC");
+        keySpecField.setAccessible(true);
+        Object originalKeySpec = keySpecField.get(null);
+        try {
+            System.setProperty("user.home", tempDir.toString());
+            props.clear();
+            Properties partial = new Properties();
+            partial.setProperty("db_username", "local_test_user");
+            partial.setProperty(EncryptionUtils.SECRET_KEY_ENV_VAR, EncryptionUtils.generateSecretKey());
+            try (var out = Files.newOutputStream(tempDir.resolve("carlosmergekey.properties"))) {
+                partial.store(out, "Synthetic partial deployment");
+            }
+            new Startup().contextInitialized(newStartupEvent(tempDir, "carlosmergekey"));
+            assertThat(props.getProperty("db_username")).isEqualTo("local_test_user");
+            assertThat(props.getProperty("db_name")).isEqualTo("carlos_test_db;MODE=MySQL;NON_KEYWORDS=VALUE");
+            assertThat(props.getProperty("db_driver")).isEqualTo("org.h2.Driver");
+            assertThat(props.getProperty(EncryptionUtils.SECRET_KEY_ENV_VAR))
+                    .isEqualTo(partial.getProperty(EncryptionUtils.SECRET_KEY_ENV_VAR));
+        } finally {
+            restoreUserHome(originalUserHome);
+            props.clear();
+            props.putAll(snapshot);
+            keySpecField.set(null, originalKeySpec);
+        }
+    }
+
+    @Test
+    void shouldReuseParsedOverrideAndPreservePrecedence_whenWebInfFallbackLoads(@TempDir Path tempDir) throws Exception {
+        String originalOverride = System.getProperty("carlos_override_properties");
+        String originalUserHome = System.getProperty("user.home");
+        Field keySpecField = EncryptionUtils.class.getDeclaredField("SECRET_KEY_SPEC");
+        keySpecField.setAccessible(true);
+        Object originalKeySpec = keySpecField.get(null);
+        Path override = tempDir.resolve("override.properties");
+        String key = EncryptionUtils.generateSecretKey();
+        try {
+            Files.writeString(override, "test.overlay=override\ntest.overrideOnly=original snapshot\n"
+                    + EncryptionUtils.SECRET_KEY_ENV_VAR + "=" + key + "\ndb_username=   \n");
+            System.setProperty("carlos_override_properties", override.toString());
+            var constructor = CarlosProperties.class.getDeclaredConstructor();
+            constructor.setAccessible(true);
+            CarlosProperties properties = constructor.newInstance();
+            properties.remove("BASE_DOCUMENT_DIR");
+            // Changing the file after construction must not change startup's parsed snapshot.
+            Files.writeString(override, "test.overrideOnly=changed after parse\n");
+            Files.writeString(tempDir.resolve("carlosmergekey.properties"), "test.overlay=user home\n");
+            System.setProperty("user.home", tempDir.toString());
+            Startup startup = new Startup();
+            Field applicationProperties = Startup.class.getDeclaredField("p");
+            applicationProperties.setAccessible(true);
+            applicationProperties.set(startup, properties);
+            startup.contextInitialized(newStartupEvent(tempDir, "carlosmergekey"));
+            assertThat(properties.getProperty("db_username")).isEqualTo("carlos_test_user");
+            assertThat(properties.getProperty("db_name")).isEqualTo("carlos_test_db;MODE=MySQL;NON_KEYWORDS=VALUE");
+            assertThat(properties.getProperty("test.overlay")).isEqualTo("user home");
+            assertThat(properties.getProperty("test.overrideOnly")).isEqualTo("original snapshot");
+            assertThat(properties.getProperty(EncryptionUtils.SECRET_KEY_ENV_VAR)).isEqualTo(key);
+        } finally {
+            if (originalOverride == null) System.clearProperty("carlos_override_properties");
+            else System.setProperty("carlos_override_properties", originalOverride);
+            restoreUserHome(originalUserHome);
+            keySpecField.set(null, originalKeySpec);
+        }
+    }
+
+    private static String webInfPlaceholderKey() throws IOException {
+        Properties fixture = new Properties();
+        try (var input = StartupUnitTest.class.getResourceAsStream("/WEB-INF/carlosmergekey.properties")) {
+            if (input == null) throw new IOException("Missing WEB-INF key fixture");
+            fixture.load(input);
+        }
+        return fixture.getProperty(EncryptionUtils.SECRET_KEY_ENV_VAR);
     }
 
     private static void restoreUserHome(String originalUserHome) {
